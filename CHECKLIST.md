@@ -12,6 +12,8 @@ Updated 2026-10-20 · attempt 39 · kernel 7.2.11 (#21)
 - [x] Bluetooth audio in (A2DP sink): phone plays music streamed from another device (2026-10-21)
 - [x] Bluetooth audio out: connects to a car stereo, clear audio (2026-10-21)
 - [x] Display 120/96/60/48/30/24 Hz + **Dynamic VRR (10-120 Hz PHS/LFD & seamless switch), HBM (~1300 nits + auto-lux), hardware mDNIe/IRC/OTP colour calibration & Always-On Display (HLPM 2/10/30/60 nit)**, touch, GPU ([[Display]]); CPU frequency scaling + PSCI idle states verified
+- [x] **KWin on Adreno 730**: session waits for `/dev/dri/card0` + `renderD128` before starting; `freedreno/FD730`, no `llvmpipe` (2026-11-12)
+- [x] **Wayland socket discovery** (`wayland-[0-9]`) in `s22-display-ctl` / `s22-display-extrasd`; 120↔60 switching works through the helper (2026-11-12)
 - [x] Stereo speakers + handset **Earpiece** + 2 mics + **VoiceCall UCM2** ([[Audio]]); amp digital volume +3 dB (841), no speaker protection yet
 - [x] Power, volume down, volume up buttons
 - [x] On-screen keyboard

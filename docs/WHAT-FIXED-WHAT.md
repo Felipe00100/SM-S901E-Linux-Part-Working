@@ -58,6 +58,9 @@ From flashing uniLoader up to attempt 39 (2026-10-20). Kernel 7.2.11, postmarket
 | 44 | Modem not listed by ModemManager, no mobile data (no SM8450 IPA), manual start only | Backport SM8450 IPA v5.1 (`qcom,sm8450-ipa`, `ipa_data-v5.1.c`), wire `&ipa` to stock `ipa_gsi_mem` (`0x8b910000` PAS 15 `apnhlos` `ipa_fws.mdt`), enable `RMNET` + `RPMSG_WWAN_CTRL`, add `s22-modem.service` (auto-boot + Dual-SIM QMI UIM provisioning + GNSS), read-only `rmtfs` drop-in, `81voltd`, and `VoiceCall`/`Earpiece` UCM2 | Upstream LKML (E. Urrutia / N. Kompanets) + Samsung kernel (`ipa.c`) + Ours (Gemini 4 Carbon) |
 | 45 | Fixed 120 Hz only (no dynamic VRR), no HBM, no colour calibration, no Always-On Display | Upgrade `panel-samsung-s6e3fac` with 6 stock FHD modes (120/96/60/48/30/24 Hz) + glitch-free seamless switching + hardware PHS/LFD adaptive VRR (10-120 Hz), 12-bit HBM (`0x0800..0x0fff`, ~1300 nits + `STK33915` auto-lux), hardware mDNIe/IRC colour modes + factory `0xA1` OTP white-point calibration + RGB/Kelvin LUT, hardware HLPM Always-On Display (2/10/30/60 nit + pocket guard), and `s22-display-ctl` | Samsung kernel (`S6E3FAC_AMB606AW01`) + Ours (Gemini 4 Carbon) |
 
+| 53 | Display helpers silently skipped `kscreen-doctor` when the compositor socket was `wayland-1` instead of `wayland-0` | Discover `wayland-[0-9]` in `s22-display-ctl` / `s22-display-extrasd`, and resolve the session user from `/etc/passwd` (busybox `id -nu` fails under sudo) before calling `kscreen-doctor` | Ours |
+| 54 | KWin composited on `llvmpipe` because the Plasma session started before the Adreno DRM nodes existed | `startplasmamobile` now drops `EGL_PLATFORM=wayland` and waits for `/dev/dri/card0` + `/dev/dri/renderD128` before launching KWin; KWin selects `renderD128` / `freedreno FD730` | Ours |
+
 ## Not fixed yet
 - 2.4 GHz Wi-Fi association times out (5 GHz works)
 - Speaker protection firmware (volume kept moderate)
