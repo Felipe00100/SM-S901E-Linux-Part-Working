@@ -40,7 +40,7 @@
 - [ ] Never unbind msm-mdss live (oopsed once); update display drivers by module install + reboot
 - [ ] CDSP memory shrunk (2 MiB + 15 parts) - restore a full 32 MiB before any DSP work
 - [ ] dispcc built as module; display relies on it loading at boot (blocklist line commented out)
-- [ ] Plasma Mobile: UI scale (2.5x), nav bar (Back/Home/Overview), KWin GPU rendering not yet set up
+- [x] Plasma Mobile: UI scale (2.5x), nav bar (Back/Home/Overview), KWin GPU rendering set up on Adreno 730 (unified msm DRM card0 + Always-On Display & Game 90Hz QuickSettings)
 - [ ] Phosh: on-screen keyboard popping up by itself; home bar should now appear on DSI-1 (unverified)
 - [ ] Debug leftovers: mhi/host/Makefile still has -DDEBUG (tree), test modules in ~ on the phone (mhi-poll, ath11k_pci-*, rfclk), panel driver readback prints, ramoops/console debug patch in the kernel
 - [ ] Upstream-pending patches carried locally: FTS2BA61Y touch driver, MAX77705 rev 0x2, r0q device tree, new panel driver

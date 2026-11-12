@@ -20,9 +20,16 @@ for f in modem_fs1 modem_fs2 modem_fsg; do
 done
 
 # 2. Load kernel drivers for MPSS, IPA v5.1, RMNET and WWAN
-for mod in rmtfs_mem qcom_pd_mapper qcom_sysmon qcom_q6v5_pas qrtr qrtr_smd qrtr_tun ipa rmnet rpmsg_wwan_ctrl rpmsg_tty; do
+for mod in rmtfs_mem qcom_pd_mapper qcom_sysmon qcom_q6v5_pas qrtr qrtr_smd qrtr_tun ipa rmnet; do
 	modprobe "$mod" 2>/dev/null || true
 done
+
+# 2b. Ensure rmtfs and tqftpserv are running before MPSS boots
+udevadm settle --timeout=5 2>/dev/null || true
+if command -v systemctl >/dev/null 2>&1; then
+	systemctl start tqftpserv.service rmtfs.service 2>/dev/null || true
+	sleep 1
+fi
 
 # 3. Locate the MPSS remoteproc instance dynamically
 MODEM_RPROC=""
@@ -49,7 +56,7 @@ fi
 for _ in $(seq 1 40); do
 	if [ "$(cat "$MODEM_RPROC/state" 2>/dev/null)" = "running" ] &&
 	   command -v qmicli >/dev/null 2>&1 &&
-	   qmicli -p -d qrtr://0 --dms-get-operating-mode >/dev/null 2>&1; then
+	   qmicli -d qrtr://0 --dms-get-operating-mode >/dev/null 2>&1; then
 		break
 	fi
 	sleep 0.5
@@ -61,14 +68,14 @@ log "MPSS state: $STATE"
 
 if command -v qmicli >/dev/null 2>&1; then
 	# 5. Ensure modem operating mode is online
-	OPMODE="$(qmicli -p -d qrtr://0 --dms-get-operating-mode 2>/dev/null | sed -n "s/.*Mode: '\([^']*\)'.*/\1/p" | head -n1)"
+	OPMODE="$(qmicli -d qrtr://0 --dms-get-operating-mode 2>/dev/null | sed -n "s/.*Mode: '\([^']*\)'.*/\1/p" | head -n1)"
 	log "QMI DMS operating mode: ${OPMODE:-unknown}"
 	if [ -n "$OPMODE" ] && [ "$OPMODE" != "online" ]; then
-		qmicli -p -d qrtr://0 --dms-set-operating-mode=online >/dev/null 2>&1 || true
+		qmicli -d qrtr://0 --dms-set-operating-mode=online >/dev/null 2>&1 || true
 	fi
 
 	# 6. Dual-SIM UIM auto-provisioning (Slot 1 / Slot 2 USIM -> primary-gw-provisioning)
-	CARD_STATUS="$(qmicli -p -d qrtr://0 --uim-get-card-status 2>/dev/null || true)"
+	CARD_STATUS="$(qmicli -d qrtr://0 --uim-get-card-status 2>/dev/null || true)"
 	if printf '%s
 ' "$CARD_STATUS" | grep -q "Primary GW:.*session doesn't exist"; then
 		PROVISION_ARGS="$(printf '%s
@@ -94,15 +101,15 @@ if command -v qmicli >/dev/null 2>&1; then
 		')"
 		if [ -n "$PROVISION_ARGS" ]; then
 			log "Activating SIM UIM provisioning session: $PROVISION_ARGS"
-			qmicli -p -d qrtr://0 --uim-change-provisioning-session="$PROVISION_ARGS" >>"$LOG" 2>&1 || true
+			qmicli -d qrtr://0 --uim-change-provisioning-session="$PROVISION_ARGS" >>"$LOG" 2>&1 || true
 		else
 			log "No unprovisioned USIM detected yet (insert SIM card to register)"
 		fi
 	fi
 
 	# 7. Unlock QMI GNSS location engine for ModemManager Location interface
-	qmicli -p -d qrtr://0 --loc-set-engine-lock=mt >/dev/null 2>&1 || true
-	qmicli -p -d qrtr://0 --loc-set-nmea-types=all >/dev/null 2>&1 || true
+	qmicli -d qrtr://0 --loc-set-engine-lock=mt >/dev/null 2>&1 || true
+	qmicli -d qrtr://0 --loc-set-nmea-types=all >/dev/null 2>&1 || true
 fi
 
 # 8. Retrigger udev on IPA and WWAN devices so ModemManager binds immediately

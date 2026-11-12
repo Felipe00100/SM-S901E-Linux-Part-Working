@@ -562,7 +562,7 @@ index 0000000..7d7bc19
 +	.local		= ipa_mem_local_data,
 +	.imem_addr	= 0x146a8000,
 +	.imem_size	= 0x00002000,
-+	.smem_size	= 0x00009000,
++	.smem_size	= 0x0000b000,
 +};
 +
 +/* Interconnect rates are in 1000 byte/second units */

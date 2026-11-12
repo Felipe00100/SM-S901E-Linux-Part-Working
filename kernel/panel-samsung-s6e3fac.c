@@ -16,11 +16,15 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
+#include <linux/input.h>
+#include <linux/jiffies.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/regulator/consumer.h>
+#include <linux/slab.h>
 #include <linux/sysfs.h>
+#include <linux/workqueue.h>
 
 #include <drm/display/drm_dsc.h>
 #include <drm/display/drm_dsc_helper.h>
@@ -30,6 +34,7 @@
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_vblank.h>
 
 #include "panel-samsung-s6e3fac-mdnie.h"
 
@@ -39,18 +44,18 @@
 #define S6E3FAC_MID_HBM_DBV	3071
 #define S6E3FAC_MAX_HBM_DBV	4095
 
+#define S6E3FAC_VRR_CHECK_MS		5000
+#define S6E3FAC_VRR_SHORT_IDLE_MS	5000
+#define S6E3FAC_VRR_STATIC_24HZ_MS	45000
+#define S6E3FAC_STATIC_MAX_VBLANKS	6
+
 enum s6e3fac_vrr_policy {
-	S6E3FAC_VRR_ADAPTIVE_24 = 0,	/* 120 Hz active -> 24 Hz idle PHS/LFD */
-	S6E3FAC_VRR_ADAPTIVE_10,	/* 120 Hz active -> 10 Hz idle PHS/LFD */
-	S6E3FAC_VRR_ADAPTIVE_60,	/* 120 Hz active -> 60 Hz idle PHS/LFD */
-	S6E3FAC_VRR_FIXED,		/* Follow exact DRM mode vrefresh */
+	S6E3FAC_VRR_DYNAMIC = 0,	/* 120<->60 Hz dynamic + 24 Hz on long static idle */
+	S6E3FAC_VRR_FIXED,		/* Follow DRM 120/60 Hz (60 Hz during video playback) */
+	S6E3FAC_VRR_GAME,		/* Game mode (96HS / 90 Hz class) */
 	S6E3FAC_VRR_FORCE_120,
-	S6E3FAC_VRR_FORCE_96,
 	S6E3FAC_VRR_FORCE_60,
-	S6E3FAC_VRR_FORCE_48,
-	S6E3FAC_VRR_FORCE_30,
 	S6E3FAC_VRR_FORCE_24,
-	S6E3FAC_VRR_FORCE_10,
 };
 
 enum s6e3fac_colour_mode {
@@ -91,7 +96,20 @@ struct s6e3fac {
 	bool in_aod;
 
 	unsigned int cur_vrefresh;
+	unsigned int effective_rr;
+	unsigned int applied_rr;
+	bool applied_phs;
 	enum s6e3fac_vrr_policy vrr_policy;
+	bool video_mode;
+	bool game_mode;
+
+	unsigned long last_input_jiffies;
+	u64 last_vblank_count;
+	unsigned int static_idle_ms;
+	struct work_struct vrr_boost_work;
+	struct delayed_work vrr_idle_work;
+	struct input_handler input_handler;
+	bool input_registered;
 
 	unsigned int hbm_mode;	/* 0 = off, 1 = medium boost, 2 = peak sunlight */
 	u16 hbm_dbv;		/* Custom HBM DBV [2048..4095] */
@@ -325,14 +343,99 @@ static void s6e3fac_read_otp_locked(struct s6e3fac *ctx)
 	}
 }
 
+static u64 s6e3fac_read_vblank_count(struct s6e3fac *ctx)
+{
+	struct drm_connector *conn = ctx->connector;
+
+	if (!conn || !conn->state || !conn->state->crtc)
+		return 0;
+
+	return drm_crtc_vblank_count(conn->state->crtc);
+}
+
+static void s6e3fac_schedule_idle_check_locked(struct s6e3fac *ctx)
+{
+	if (!ctx->prepared || ctx->in_aod)
+		return;
+
+	if (ctx->vrr_policy == S6E3FAC_VRR_DYNAMIC && !ctx->game_mode &&
+	    ctx->cur_vrefresh >= 120) {
+		mod_delayed_work(system_wq, &ctx->vrr_idle_work,
+				 msecs_to_jiffies(S6E3FAC_VRR_CHECK_MS));
+	} else {
+		cancel_delayed_work(&ctx->vrr_idle_work);
+	}
+}
+
+static void s6e3fac_select_vrr_target_locked(struct s6e3fac *ctx,
+					     unsigned int *out_rr,
+					     bool *out_phs)
+{
+	unsigned int drm_rr = ctx->cur_vrefresh ? ctx->cur_vrefresh : refresh;
+	unsigned long idle_ms = jiffies_to_msecs(jiffies - ctx->last_input_jiffies);
+
+	if (ctx->game_mode || ctx->vrr_policy == S6E3FAC_VRR_GAME || drm_rr == 96) {
+		*out_rr = 96;
+		*out_phs = false;
+		return;
+	}
+
+	switch (ctx->vrr_policy) {
+	case S6E3FAC_VRR_FORCE_120:
+		*out_rr = 120;
+		*out_phs = false;
+		return;
+	case S6E3FAC_VRR_FORCE_60:
+		*out_rr = 60;
+		*out_phs = (drm_rr >= 120);
+		return;
+	case S6E3FAC_VRR_FORCE_24:
+		*out_rr = 24;
+		*out_phs = true;
+		return;
+	case S6E3FAC_VRR_FIXED:
+		if (drm_rr >= 120 && ctx->video_mode) {
+			*out_rr = 60;
+			*out_phs = true;
+		} else if (drm_rr <= 60) {
+			*out_rr = 60;
+			*out_phs = false;
+		} else {
+			*out_rr = 120;
+			*out_phs = false;
+		}
+		return;
+	case S6E3FAC_VRR_DYNAMIC:
+	default:
+		if (drm_rr <= 60) {
+			*out_rr = 60;
+			*out_phs = false;
+		} else if (ctx->video_mode) {
+			*out_rr = 60;
+			*out_phs = true;
+		} else if (idle_ms < S6E3FAC_VRR_SHORT_IDLE_MS) {
+			*out_rr = 120;
+			*out_phs = false;
+		} else if (idle_ms >= S6E3FAC_VRR_STATIC_24HZ_MS &&
+			   ctx->static_idle_ms >= S6E3FAC_VRR_STATIC_24HZ_MS) {
+			*out_rr = 24;
+			*out_phs = true;
+		} else {
+			*out_rr = 60;
+			*out_phs = true;
+		}
+		return;
+	}
+}
+
 /*
- * Build and send Samsung's VRR / PHS (LFD) register update (ss_vrr in OEM driver).
+ * Build and send Samsung's VRR / PHS register update (ss_vrr in OEM driver).
  * Can be called live in HS mode without blanking or resetting the panel.
  */
 static int s6e3fac_apply_vrr_locked(struct s6e3fac *ctx, bool hs_transfer)
 {
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
-	unsigned int rr = ctx->cur_vrefresh;
+	unsigned int rr = 120;
 	bool phs = false;
 	unsigned int base_rr;
 	u8 osc, freq, glut_en;
@@ -342,50 +445,10 @@ static int s6e3fac_apply_vrr_locked(struct s6e3fac *ctx, bool hs_transfer)
 	u8 aor_gpara[4] = { 0xb0, 0x00, 0x8b, 0x98 };
 	const u8 *aor_tbl = s6e3fac_aor_120_60;
 
-	switch (ctx->vrr_policy) {
-	case S6E3FAC_VRR_ADAPTIVE_24:
-		if (rr == 120) {
-			rr = 24;
-			phs = true;
-		}
-		break;
-	case S6E3FAC_VRR_ADAPTIVE_10:
-		if (rr == 120) {
-			rr = 10;
-			phs = true;
-		}
-		break;
-	case S6E3FAC_VRR_ADAPTIVE_60:
-		if (rr == 120) {
-			rr = 60;
-			phs = true;
-		}
-		break;
-	case S6E3FAC_VRR_FORCE_120:
-		rr = 120;
-		break;
-	case S6E3FAC_VRR_FORCE_96:
-		rr = 96;
-		break;
-	case S6E3FAC_VRR_FORCE_60:
-		rr = 60;
-		break;
-	case S6E3FAC_VRR_FORCE_48:
-		rr = 48;
-		break;
-	case S6E3FAC_VRR_FORCE_30:
-		rr = 30;
-		break;
-	case S6E3FAC_VRR_FORCE_24:
-		rr = 24;
-		break;
-	case S6E3FAC_VRR_FORCE_10:
-		rr = 10;
-		break;
-	case S6E3FAC_VRR_FIXED:
-	default:
-		break;
-	}
+	s6e3fac_select_vrr_target_locked(ctx, &rr, &phs);
+	ctx->effective_rr = rr;
+	if (hs_transfer && ctx->applied_rr == rr && ctx->applied_phs == phs)
+		return 0;
 
 	/* Determine base timing family (ss_get_vrr_mode_base) */
 	if (phs || rr == 120)
@@ -479,8 +542,122 @@ static int s6e3fac_apply_vrr_locked(struct s6e3fac *ctx, bool hs_transfer)
 	if (hs_transfer)
 		ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 
+	if (!dsi_ctx.accum_err) {
+		ctx->applied_rr = rr;
+		ctx->applied_phs = phs;
+	}
+
 	return dsi_ctx.accum_err;
 }
+
+static void s6e3fac_vrr_boost_work_fn(struct work_struct *work)
+{
+	struct s6e3fac *ctx = container_of(work, struct s6e3fac, vrr_boost_work);
+
+	mutex_lock(&ctx->lock);
+	ctx->static_idle_ms = 0;
+	if (ctx->prepared && !ctx->in_aod) {
+		ctx->last_vblank_count = s6e3fac_read_vblank_count(ctx);
+		s6e3fac_apply_vrr_locked(ctx, true);
+		s6e3fac_schedule_idle_check_locked(ctx);
+	}
+	mutex_unlock(&ctx->lock);
+}
+
+static void s6e3fac_vrr_idle_work_fn(struct work_struct *work)
+{
+	struct s6e3fac *ctx = container_of(work, struct s6e3fac, vrr_idle_work.work);
+	u64 cur_vb, delta_vb;
+
+	mutex_lock(&ctx->lock);
+	if (!ctx->prepared || ctx->in_aod) {
+		mutex_unlock(&ctx->lock);
+		return;
+	}
+
+	cur_vb = s6e3fac_read_vblank_count(ctx);
+	delta_vb = (cur_vb >= ctx->last_vblank_count) ?
+		   (cur_vb - ctx->last_vblank_count) : 0;
+	ctx->last_vblank_count = cur_vb;
+
+	if (!ctx->video_mode && delta_vb <= S6E3FAC_STATIC_MAX_VBLANKS) {
+		if (ctx->static_idle_ms < S6E3FAC_VRR_STATIC_24HZ_MS)
+			ctx->static_idle_ms += S6E3FAC_VRR_CHECK_MS;
+	} else {
+		ctx->static_idle_ms = 0;
+	}
+
+	s6e3fac_apply_vrr_locked(ctx, true);
+	s6e3fac_schedule_idle_check_locked(ctx);
+	mutex_unlock(&ctx->lock);
+}
+
+static void s6e3fac_input_event(struct input_handle *handle, unsigned int type,
+				unsigned int code, int value)
+{
+	struct s6e3fac *ctx = handle->handler->private;
+
+	if (type != EV_ABS && type != EV_KEY && type != EV_REL)
+		return;
+
+	WRITE_ONCE(ctx->last_input_jiffies, jiffies);
+
+	if (READ_ONCE(ctx->prepared) && !READ_ONCE(ctx->in_aod) &&
+	    READ_ONCE(ctx->vrr_policy) == S6E3FAC_VRR_DYNAMIC &&
+	    !READ_ONCE(ctx->game_mode) && !READ_ONCE(ctx->video_mode) &&
+	    READ_ONCE(ctx->effective_rr) != 120)
+		queue_work(system_highpri_wq, &ctx->vrr_boost_work);
+}
+
+static int s6e3fac_input_connect(struct input_handler *handler,
+				 struct input_dev *dev,
+				 const struct input_device_id *id)
+{
+	struct input_handle *handle;
+	int ret;
+
+	handle = kzalloc_obj(*handle);
+	if (!handle)
+		return -ENOMEM;
+
+	handle->dev = dev;
+	handle->handler = handler;
+	handle->name = "s6e3fac-vrr";
+
+	ret = input_register_handle(handle);
+	if (ret) {
+		kfree(handle);
+		return ret;
+	}
+
+	ret = input_open_device(handle);
+	if (ret) {
+		input_unregister_handle(handle);
+		kfree(handle);
+		return ret;
+	}
+
+	return 0;
+}
+
+static void s6e3fac_input_disconnect(struct input_handle *handle)
+{
+	input_close_device(handle);
+	input_unregister_handle(handle);
+	kfree(handle);
+}
+
+static const struct input_device_id s6e3fac_input_ids[] = {
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
+		.evbit = { BIT_MASK(EV_ABS) },
+	},
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
+		.evbit = { BIT_MASK(EV_KEY) },
+	},
+	{ }
+};
 
 static int s6e3fac_apply_acl_locked(struct s6e3fac *ctx)
 {
@@ -879,11 +1056,16 @@ static int s6e3fac_prepare(struct drm_panel *panel)
 	mutex_lock(&ctx->lock);
 
 	ctx->cur_vrefresh = s6e3fac_get_target_vrefresh(ctx);
+	ctx->last_input_jiffies = jiffies;
+	ctx->static_idle_ms = 0;
+	ctx->last_vblank_count = s6e3fac_read_vblank_count(ctx);
+	ctx->applied_rr = 0;
 
 	if (ctx->seamless_transition) {
 		ctx->seamless_transition = false;
 		ctx->prepared = true;
 		s6e3fac_apply_vrr_locked(ctx, true);
+		s6e3fac_schedule_idle_check_locked(ctx);
 		mutex_unlock(&ctx->lock);
 		return 0;
 	}
@@ -896,6 +1078,7 @@ static int s6e3fac_prepare(struct drm_panel *panel)
 			s6e3fac_apply_acl_locked(ctx);
 			s6e3fac_apply_mdnie_locked(ctx);
 			s6e3fac_apply_brightness_locked(ctx);
+			s6e3fac_schedule_idle_check_locked(ctx);
 			mutex_unlock(&ctx->lock);
 			return 0;
 		}
@@ -926,6 +1109,7 @@ static int s6e3fac_prepare(struct drm_panel *panel)
 	s6e3fac_apply_acl_locked(ctx);
 	s6e3fac_apply_mdnie_locked(ctx);
 	s6e3fac_apply_brightness_locked(ctx);
+	s6e3fac_schedule_idle_check_locked(ctx);
 
 	mutex_unlock(&ctx->lock);
 	return 0;
@@ -967,6 +1151,8 @@ static int s6e3fac_disable(struct drm_panel *panel)
 		mutex_unlock(&ctx->lock);
 		return 0;
 	}
+
+	cancel_delayed_work(&ctx->vrr_idle_work);
 
 	/* Hardware Always-On Display (HLPM): transition into self-refresh */
 	if (ctx->aod_enabled) {
@@ -1022,6 +1208,7 @@ static int s6e3fac_unprepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
 	regulator_bulk_disable(ARRAY_SIZE(s6e3fac_supplies), ctx->supplies);
 	ctx->prepared = false;
+	ctx->applied_rr = 0;
 
 	mutex_unlock(&ctx->lock);
 	return 0;
@@ -1042,38 +1229,42 @@ static int s6e3fac_unprepare(struct drm_panel *panel)
 	.type = DRM_MODE_TYPE_DRIVER,						\
 }
 
-/* Exact stock display timings from ss_dsi_panel_S6E3FAC_AMB606AW01_FHD DTBO */
-static const struct drm_display_mode s6e3fac_modes[] = {
+/* Normal DRM modes: strictly 120 Hz (preferred) and 60 Hz; 96 Hz only in Game Mode */
+static const struct drm_display_mode s6e3fac_normal_modes[] = {
 	S6E3FAC_MODE(120,   467, 84),	/* fhd120hs */
-	S6E3FAC_MODE(96,   1212, 84),	/* fhd96hs  */
 	S6E3FAC_MODE(60,   3441, 85),	/* fhd60hs  */
-	S6E3FAC_MODE(48,   4928, 84),	/* fhd48hs  */
-	S6E3FAC_MODE(30,   9390, 85),	/* fhd30hs  */
-	S6E3FAC_MODE(24,  12365, 85),	/* fhd24hs  */
 };
+
+static const struct drm_display_mode s6e3fac_game_mode =
+	S6E3FAC_MODE(96,   1212, 84);	/* fhd96hs (Game Mode) */
 
 static int s6e3fac_get_modes(struct drm_panel *panel,
 			     struct drm_connector *connector)
 {
 	struct s6e3fac *ctx = to_s6e3fac(panel);
 	struct drm_display_mode *mode;
-	bool found_pref = false;
+	unsigned int pref_rr = ctx->game_mode ? 96 : ((refresh == 60) ? 60 : 120);
 	unsigned int i, count = 0;
 
 	ctx->connector = connector;
 
-	for (i = 0; i < ARRAY_SIZE(s6e3fac_modes); i++) {
-		mode = drm_mode_duplicate(connector->dev, &s6e3fac_modes[i]);
+	if (ctx->game_mode) {
+		mode = drm_mode_duplicate(connector->dev, &s6e3fac_game_mode);
+		if (mode) {
+			drm_mode_set_name(mode);
+			mode->type |= DRM_MODE_TYPE_PREFERRED;
+			drm_mode_probed_add(connector, mode);
+			count++;
+		}
+	}
+
+	for (i = 0; i < ARRAY_SIZE(s6e3fac_normal_modes); i++) {
+		mode = drm_mode_duplicate(connector->dev, &s6e3fac_normal_modes[i]);
 		if (!mode)
 			continue;
 
 		drm_mode_set_name(mode);
-		if (drm_mode_vrefresh(mode) == refresh) {
-			mode->type |= DRM_MODE_TYPE_PREFERRED;
-			found_pref = true;
-		}
-		if (i == 0 && !found_pref && refresh != 96 && refresh != 60 &&
-		    refresh != 48 && refresh != 30 && refresh != 24)
+		if (!ctx->game_mode && drm_mode_vrefresh(mode) == pref_rr)
 			mode->type |= DRM_MODE_TYPE_PREFERRED;
 
 		drm_mode_probed_add(connector, mode);
@@ -1137,17 +1328,12 @@ static const struct {
 	enum s6e3fac_vrr_policy policy;
 	const char *name;
 } s6e3fac_vrr_names[] = {
-	{ S6E3FAC_VRR_ADAPTIVE_24, "adaptive" },
-	{ S6E3FAC_VRR_ADAPTIVE_10, "adaptive_10" },
-	{ S6E3FAC_VRR_ADAPTIVE_60, "adaptive_60" },
-	{ S6E3FAC_VRR_FIXED,       "fixed" },
-	{ S6E3FAC_VRR_FORCE_120,   "120" },
-	{ S6E3FAC_VRR_FORCE_96,    "96" },
-	{ S6E3FAC_VRR_FORCE_60,    "60" },
-	{ S6E3FAC_VRR_FORCE_48,    "48" },
-	{ S6E3FAC_VRR_FORCE_30,    "30" },
-	{ S6E3FAC_VRR_FORCE_24,    "24" },
-	{ S6E3FAC_VRR_FORCE_10,    "10" },
+	{ S6E3FAC_VRR_DYNAMIC,   "dynamic" },
+	{ S6E3FAC_VRR_FIXED,     "fixed" },
+	{ S6E3FAC_VRR_GAME,      "game" },
+	{ S6E3FAC_VRR_FORCE_120, "120" },
+	{ S6E3FAC_VRR_FORCE_60,  "60" },
+	{ S6E3FAC_VRR_FORCE_24,  "24" },
 };
 
 static ssize_t vrr_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -1163,7 +1349,9 @@ static ssize_t vrr_mode_show(struct device *dev, struct device_attribute *attr, 
 		else
 			len += sysfs_emit_at(buf, len, "%s ", s6e3fac_vrr_names[i].name);
 	}
-	len += sysfs_emit_at(buf, len, "(drm=%uHz)\n", ctx->cur_vrefresh);
+	len += sysfs_emit_at(buf, len, "(drm=%uHz hw=%uHz video=%u game=%u)\n",
+			     ctx->cur_vrefresh, ctx->effective_rr,
+			     ctx->video_mode ? 1 : 0, ctx->game_mode ? 1 : 0);
 	mutex_unlock(&ctx->lock);
 
 	return len;
@@ -1173,24 +1361,132 @@ static ssize_t vrr_mode_store(struct device *dev, struct device_attribute *attr,
 			      const char *buf, size_t count)
 {
 	struct s6e3fac *ctx = dev_get_drvdata(dev);
+	enum s6e3fac_vrr_policy new_policy;
+	struct drm_device *drm_dev = NULL;
+	bool prev_game, matched = false;
 	unsigned int i;
-	bool matched = false;
 
-	for (i = 0; i < ARRAY_SIZE(s6e3fac_vrr_names); i++) {
-		if (sysfs_streq(buf, s6e3fac_vrr_names[i].name)) {
-			mutex_lock(&ctx->lock);
-			ctx->vrr_policy = s6e3fac_vrr_names[i].policy;
-			if (ctx->prepared && !ctx->in_aod)
-				s6e3fac_apply_vrr_locked(ctx, true);
-			mutex_unlock(&ctx->lock);
-			matched = true;
-			break;
+	if (sysfs_streq(buf, "adaptive")) {
+		new_policy = S6E3FAC_VRR_DYNAMIC;
+		matched = true;
+	} else if (sysfs_streq(buf, "90") || sysfs_streq(buf, "96")) {
+		new_policy = S6E3FAC_VRR_GAME;
+		matched = true;
+	} else {
+		for (i = 0; i < ARRAY_SIZE(s6e3fac_vrr_names); i++) {
+			if (sysfs_streq(buf, s6e3fac_vrr_names[i].name)) {
+				new_policy = s6e3fac_vrr_names[i].policy;
+				matched = true;
+				break;
+			}
 		}
 	}
 
-	return matched ? count : -EINVAL;
+	if (!matched)
+		return -EINVAL;
+
+	mutex_lock(&ctx->lock);
+	prev_game = ctx->game_mode;
+	ctx->vrr_policy = new_policy;
+	ctx->game_mode = (new_policy == S6E3FAC_VRR_GAME);
+	ctx->last_input_jiffies = jiffies;
+	ctx->static_idle_ms = 0;
+	ctx->applied_rr = 0;
+	if (ctx->prepared && !ctx->in_aod) {
+		s6e3fac_apply_vrr_locked(ctx, true);
+		s6e3fac_schedule_idle_check_locked(ctx);
+	}
+	if (prev_game != ctx->game_mode && ctx->connector)
+		drm_dev = ctx->connector->dev;
+	mutex_unlock(&ctx->lock);
+
+	if (drm_dev)
+		drm_kms_helper_hotplug_event(drm_dev);
+
+	return count;
 }
 static DEVICE_ATTR_RW(vrr_mode);
+
+static ssize_t video_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct s6e3fac *ctx = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", ctx->video_mode ? 1 : 0);
+}
+
+static ssize_t video_mode_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct s6e3fac *ctx = dev_get_drvdata(dev);
+	bool en;
+	int ret;
+
+	ret = kstrtobool(buf, &en);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	if (ctx->video_mode != en) {
+		ctx->video_mode = en;
+		ctx->static_idle_ms = 0;
+		if (!en)
+			ctx->last_input_jiffies = jiffies;
+		if (ctx->prepared && !ctx->in_aod) {
+			s6e3fac_apply_vrr_locked(ctx, true);
+			s6e3fac_schedule_idle_check_locked(ctx);
+		}
+	}
+	mutex_unlock(&ctx->lock);
+
+	return count;
+}
+static DEVICE_ATTR_RW(video_mode);
+
+static ssize_t game_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct s6e3fac *ctx = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", ctx->game_mode ? 1 : 0);
+}
+
+static ssize_t game_mode_store(struct device *dev, struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct s6e3fac *ctx = dev_get_drvdata(dev);
+	struct drm_device *drm_dev = NULL;
+	bool en;
+	int ret;
+
+	ret = kstrtobool(buf, &en);
+	if (ret)
+		return ret;
+
+	mutex_lock(&ctx->lock);
+	if (ctx->game_mode != en) {
+		ctx->game_mode = en;
+		if (en)
+			ctx->vrr_policy = S6E3FAC_VRR_GAME;
+		else if (ctx->vrr_policy == S6E3FAC_VRR_GAME)
+			ctx->vrr_policy = S6E3FAC_VRR_DYNAMIC;
+
+		ctx->last_input_jiffies = jiffies;
+		ctx->static_idle_ms = 0;
+		ctx->applied_rr = 0;
+		if (ctx->prepared && !ctx->in_aod) {
+			s6e3fac_apply_vrr_locked(ctx, true);
+			s6e3fac_schedule_idle_check_locked(ctx);
+		}
+		if (ctx->connector)
+			drm_dev = ctx->connector->dev;
+	}
+	mutex_unlock(&ctx->lock);
+
+	if (drm_dev)
+		drm_kms_helper_hotplug_event(drm_dev);
+
+	return count;
+}
+static DEVICE_ATTR_RW(game_mode);
 
 static ssize_t hbm_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1413,6 +1709,12 @@ static ssize_t aod_mode_store(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&ctx->lock);
 	ctx->aod_enabled = en;
+	if (!en && ctx->in_aod) {
+		ctx->in_aod = false;
+		ctx->applied_rr = 0;
+		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+		regulator_bulk_disable(ARRAY_SIZE(s6e3fac_supplies), ctx->supplies);
+	}
 	mutex_unlock(&ctx->lock);
 
 	return count;
@@ -1449,6 +1751,8 @@ static DEVICE_ATTR_RW(aod_brightness);
 
 static struct attribute *s6e3fac_attrs[] = {
 	&dev_attr_vrr_mode.attr,
+	&dev_attr_video_mode.attr,
+	&dev_attr_game_mode.attr,
 	&dev_attr_hbm_mode.attr,
 	&dev_attr_hbm_dbv.attr,
 	&dev_attr_colour_mode.attr,
@@ -1474,9 +1778,13 @@ static int s6e3fac_probe(struct mipi_dsi_device *dsi)
 		return PTR_ERR(ctx);
 
 	mutex_init(&ctx->lock);
+	INIT_WORK(&ctx->vrr_boost_work, s6e3fac_vrr_boost_work_fn);
+	INIT_DELAYED_WORK(&ctx->vrr_idle_work, s6e3fac_vrr_idle_work_fn);
 
-	ctx->cur_vrefresh = refresh;
-	ctx->vrr_policy = S6E3FAC_VRR_ADAPTIVE_24;
+	ctx->cur_vrefresh = (refresh == 60) ? 60 : 120;
+	ctx->effective_rr = ctx->cur_vrefresh;
+	ctx->vrr_policy = S6E3FAC_VRR_DYNAMIC;
+	ctx->last_input_jiffies = jiffies;
 	ctx->hbm_mode = 0;
 	ctx->hbm_dbv = S6E3FAC_MAX_HBM_DBV;
 	ctx->last_normal_dbv = 1023;
@@ -1517,9 +1825,21 @@ static int s6e3fac_probe(struct mipi_dsi_device *dsi)
 		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
 				     "Failed to create backlight\n");
 
+	ctx->input_handler.event = s6e3fac_input_event;
+	ctx->input_handler.connect = s6e3fac_input_connect;
+	ctx->input_handler.disconnect = s6e3fac_input_disconnect;
+	ctx->input_handler.name = "s6e3fac-vrr";
+	ctx->input_handler.id_table = s6e3fac_input_ids;
+	ctx->input_handler.private = ctx;
+	if (input_register_handler(&ctx->input_handler) == 0)
+		ctx->input_registered = true;
+
 	ret = devm_drm_panel_add(dev, &ctx->panel);
-	if (ret)
+	if (ret) {
+		if (ctx->input_registered)
+			input_unregister_handler(&ctx->input_handler);
 		return ret;
+	}
 
 	/* This panel only supports DSC; unconditionally enable it */
 	dsi->dsc = &ctx->dsc;
@@ -1533,12 +1853,29 @@ static int s6e3fac_probe(struct mipi_dsi_device *dsi)
 	ctx->dsc.bits_per_pixel = 8 << 4; /* 4 fractional bits */
 	ctx->dsc.block_pred_enable = true;
 
-	return devm_mipi_dsi_attach(dev, dsi);
+	ret = devm_mipi_dsi_attach(dev, dsi);
+	if (ret && ctx->input_registered)
+		input_unregister_handler(&ctx->input_handler);
+
+	return ret;
+}
+
+static void s6e3fac_remove(struct mipi_dsi_device *dsi)
+{
+	struct s6e3fac *ctx = mipi_dsi_get_drvdata(dsi);
+
+	if (ctx->input_registered)
+		input_unregister_handler(&ctx->input_handler);
+	cancel_work_sync(&ctx->vrr_boost_work);
+	cancel_delayed_work_sync(&ctx->vrr_idle_work);
 }
 
 static void s6e3fac_shutdown(struct mipi_dsi_device *dsi)
 {
 	struct s6e3fac *ctx = mipi_dsi_get_drvdata(dsi);
+
+	cancel_work_sync(&ctx->vrr_boost_work);
+	cancel_delayed_work_sync(&ctx->vrr_idle_work);
 
 	mutex_lock(&ctx->lock);
 	if (ctx->in_aod) {
@@ -1557,6 +1894,7 @@ MODULE_DEVICE_TABLE(of, s6e3fac_of_match);
 
 static struct mipi_dsi_driver s6e3fac_driver = {
 	.probe = s6e3fac_probe,
+	.remove = s6e3fac_remove,
 	.shutdown = s6e3fac_shutdown,
 	.driver = {
 		.name = "panel-samsung-s6e3fac",
