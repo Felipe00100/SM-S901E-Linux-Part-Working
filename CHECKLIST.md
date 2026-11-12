@@ -4,7 +4,7 @@ Updated 2026-11-11 ? kernel 7.2.11
 
 ## ✅ Working
 - [x] Boots postmarketOS from internal storage (~35 s)
-- [x] USB + SSH at boot, no replug ([[USB-C]])
+- [x] USB 3.0 SuperSpeed (5 Gbps, CC1/CC2 orientation) + USB 2.0 fallback + SSH at boot, no replug ([[USB-C]])
 - [x] USB plug/unplug detection (attempt 28)
 - [x] MTP file transfer to PC
 - [x] Wi-Fi 2.4 GHz + 5 GHz, autoconnects at boot ([[Wi-Fi]])
@@ -16,10 +16,10 @@ Updated 2026-11-11 ? kernel 7.2.11
 - [x] Power, volume down, volume up buttons
 - [x] On-screen keyboard
 - [x] Charging + battery %
-- [x] RAM 6.8 GiB usable
+- [x] RAM 7.0 GiB (7,161 MiB) usable (+342 MiB reclaimed from Android-only carve-outs; modem/camera/CVP regions kept)
 - [x] Firewall (nftables)
 - [x] Apps: Google Chrome, QMLKonsole, Discover + Flathub, KRecorder, Dolphin ([[Software]])
-- [x] USB OTG: USB stick detected in Dolphin (attempt 28)
+- [x] USB OTG (FAT/exFAT/ISO) + USB-PD (5V/9V) + DisplayPort Alt-Mode out (`card1-DP-1`, SVDM `0xff01` Pin C/D/E, up to HBR3)
 - [x] **CDSP (NPU processor) running**, /dev/fastrpc-cdsp (attempt 29, uniLoader DTB relocation)
 - [x] NPU: FastRPC calculator test passes on the CDSP, unsigned PD (~4/6; normal channel + cdsprpcd service, survives reboot)
 - [x] **Vulkan (Turnip) on Adreno 730**
@@ -51,7 +51,6 @@ Updated 2026-11-11 ? kernel 7.2.11
 - [ ] Rear cameras: S5KGN3 main (QUP i2c@884000), IMX563 ultrawide (CCI0 m0), S5K3K1 tele (CCI0 m1): no mainline drivers
 - [ ] Fingerprint (Qualcomm 3D Sonic QBT2000, TrustZone-only: unlikely)
 - [ ] NFC
-- [ ] DisplayPort out
 
 ## 📋 Housekeeping
 - [ ] Clean debug leftovers (ath11k debug build, `~/s22-tests`)

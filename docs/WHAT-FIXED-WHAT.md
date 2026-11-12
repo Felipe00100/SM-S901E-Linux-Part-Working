@@ -58,6 +58,9 @@ From flashing uniLoader up to attempt 39 (2026-10-20). Kernel 7.2.11, postmarket
 | 45 | Read-only RTC (`1970` at boot before NTP) | `&pmk8350_rtc` wired to `&pmk8350_sdam_21` `rtc-offset@78` (128-byte HLOS-writable SPMI SDAM); `rtc_pm8xxx` unblocked | Mainline `rtc-pm8xxx` + Ours (Gemini 4 Carbon) |
 | 46 | No sensors (auto-rotate, ambient light, proximity, compass) | `&remoteproc_slpi` (`slpi.mdt`) + stock `L2C` (1.8 V) / `L9C` (3.0 V) rails + `s22-hex-cb3` (`0x0543` `SENSORS_PD` CB) + `hexagonrpcd` + `iio-sensor-proxy` | Stock DTBO (`fragment@47`/`143`) + Ours (Gemini 4 Carbon) |
 | 47 | Deep suspend/resume USB check | Verified `deep` sleep + RTC alarm / `pmic_pwrkey` wakeup with `max77705_typec` + `dwc3-host-power-lost`: USB NCM & Wi-Fi survive resume without replug | Tab S8+ + Ours (Gemini 4 Carbon) |
+| 48 | USB 2.0 peripheral only (no USB 3.0 SuperSpeed) | Enable `&usb_1_qmpphy` (`vreg_l1b_0p91` + `vreg_l6b_1p2`), add 4nm SM8450/r0q QMP RX & PCS lock-detect tuning (`0xc4`/`0x89`, stock `fragment@152`), fix `dwc3-qcom` role VBUS/`LANE0_PWR_PRESENT` override, set `maximum-speed = "super-speed"` (`fragment@150`), build USB3/Type-C stack in | Samsung kernel (DTBO values) + Ours (Gemini 4 Carbon) |
+| 49 | No DisplayPort over USB-C | Enable `&mdss_dp0` (`card1-DP-1`, 2 lanes up to HBR3), add `gpio-sbu-mux` (`gpio125` `/OE` active-low, `gpio108` `aux_sel`), wire OF-graph ports, and implement SVDM `0xff01` (Discover Identity/SVIDs/Modes, Enter Mode, DP Status, DP Configure Pin C/D/E, Attention/HPD + `drm_dp_hpd_bridge`) in `max77705-usbc` | Samsung kernel (`max77705_alternate.c`, `secdp`) + Ours (Gemini 4 Carbon) |
+| 50 | 342 MiB of HLOS RAM still locked in Android-only `no-map` regions | Drop DTBO-disabled `oem_vm_mem` (80M) & `global_sync_mem` (1M), Android-only `trust_ui_vm_*` (76M), boot-freed `samsung-rdx-bootdev` (173M) & `samsung-sec-debug` (10M), and shrink `slpi_mem` to stock 23M (`fragment@123`), keeping modem/camera/CVP intact -> **7,161 MiB (7.0 GiB) usable** | Samsung kernel (`sec_qc_rdx_bootdev.c`, stock DTBO) + Ours (Gemini 4 Carbon) |
 
 ## Not fixed yet
 - Speaker protection firmware (volume kept moderate)
@@ -66,7 +69,7 @@ From flashing uniLoader up to attempt 39 (2026-10-20). Kernel 7.2.11, postmarket
 - Unused clocks/power domains kept on (clk_ignore_unused); removing them broke the display probe (attempt 40, reverted)
 - NPU compute runtime (needs Qualcomm SDK); NPU first-call race
 - Modem: no SIM tested, ModemManager doesn't list it; no mobile data (no sm8450 IPA)
-- Cameras, fingerprint (QBT2000/QBT2608 TrustZone-only), NFC, DisplayPort Alt-Mode
+- Cameras, fingerprint (QBT2000/QBT2608 TrustZone-only), NFC
 
 ## Rules kept throughout
 - Never write the EFS partitions (efs, sec_efs, persist, modemst1/2, fsg, fsc)

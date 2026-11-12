@@ -12,7 +12,7 @@ Credits: [CREDITS.md](CREDITS.md) · License: [LICENSE.md](LICENSE.md) (GPL-2.0 
 | 5.10 (Android GKI) | Samsung stock kernel ([opensource.samsung.com](https://opensource.samsung.com)) | Android only, not mainline |
 | 6.16-rc1 | Ghatto404 / Arthurus36 ([Nura wiki](https://wiki.nura.eco/wiki/Samsung_Galaxy_S22_5G_(samsung-r0q))) | Wiki lists Wi-Fi as working; source tree not public (Arthurus36's public repo has a decompiled stock DT only) |
 | 7.2.11 (upstream) | Mainline `arch/arm64/boot/dts/qcom/sm8450-samsung-r0q.dts` | Minimal: framebuffer, regulators, USB 2.0. No panel, touch, Wi-Fi, GPU or battery |
-| **7.2.11 (this repo)** | This port | Wi-Fi 2.4 + 5 GHz, Bluetooth, 120 Hz panel, touch, GPU, stereo speakers, mics, USB-C hotplug, MTP, buttons, charging, modem boot |
+| **7.2.11 (this repo)** | This port | Wi-Fi 2.4 + 5 GHz, Bluetooth, 120 Hz panel, touch, GPU, stereo speakers, mics, **USB 3.0 SuperSpeed + OTG + PD + DisplayPort Alt-Mode**, MTP, **SLPI sensors**, **writable RTC**, **deep sleep**, **7.0 GiB RAM**, buttons, charging, modem boot |
 
 To my knowledge this is the newest working mainline kernel on the r0q, and the most complete public one,
 as of 2026-10-18. Know of a newer or more complete one? Please open an issue.
@@ -29,16 +29,16 @@ Australian XSA, One UI 7, bootloader unlocked) from the phone's own storage. And
 | Works | Partly | Not yet |
 |---|---|---|
 | Boot via uniLoader, UFS, USB networking + SSH | **Modem**: boots, QMI online; no SIM test yet | Calls/SMS, mobile data (no sm8450 IPA in mainline) |
-| **Wi-Fi** 2.4 + 5 GHz, Wi-Fi 6 2x2, 960 Mbit/s, autoconnects at boot | **USB OTG: USB stick detected in Dolphin (FAT/exFAT/ISO)** | Cameras, fingerprint (QBT2000 TZ), NFC, DP Alt-Mode |
-| **Audio: stereo speakers (2x CS35L41) + 2 mics**, Speaker/Mic in Plasma | On-screen keyboard (no auto-hide) | **NPU userspace (CDSP firmware runs, attempt 29)**, speaker protection |
-| **USB-C hotplug + OTG** (MAX77705, ISO/exFAT) + **MTP file transfer** | | |
+| **Wi-Fi** 2.4 + 5 GHz, Wi-Fi 6 2x2, 960 Mbit/s, autoconnects at boot | On-screen keyboard (no auto-hide) | Cameras, fingerprint (QBT2000 TZ), NFC |
+| **Audio: stereo speakers (2x CS35L41) + 2 mics**, Speaker/Mic in Plasma | **Vulkan (Turnip) on Adreno 730** | **NPU userspace (CDSP firmware runs, attempt 29)**, speaker protection |
+| **USB-C USB 3.0 SuperSpeed (5 Gbps), OTG (FAT/exFAT/ISO), PD & DisplayPort Alt-Mode (`card1-DP-1`)** + **MTP** | | |
 | **Sensors** (SLPI: accel/auto-rotate, ALS/auto-brightness, proximity, compass) | | |
 | **Writable hardware RTC** (PMK8350 SDAM offset) + **Deep suspend/resume** | | |
-| **Display 120 Hz** (new mainline S6E3FAC panel driver) | **Vulkan (Turnip) on Adreno 730** | |
+| **Display 120 Hz** (new mainline S6E3FAC panel driver) | | |
 | Touch (STM FTS2BA61Y, multitouch), GPU (Adreno 730) | | |
 | Bluetooth (address from EFS), battery %, charging | | |
-| **6.8 GiB RAM**, firewall (nftables) | | |
-| Plasma Mobile autologin (tinydm), **power/volume up/volume down keys**, hardware RTC | | |
+| **7.0 GiB RAM** (7,161 MiB usable), firewall (nftables) | | |
+| Plasma Mobile autologin (tinydm), **power/volume up/volume down keys** | | |
 
 **Complete start-to-finish guide (unlock, root, EFS backup, TWRP, everything we found): [docs/S22-Mainline-Linux-Guide.pdf](docs/S22-Mainline-Linux-Guide.pdf).**
 
@@ -92,9 +92,9 @@ Result: 5 GHz ("HOME-5G" 5240 MHz, TX 960 Mbit/s HE-MCS 9 2x2) and 2.4 GHz (2462
 - `logs/` - raw phone logs and module tests (`aNN-*` = attempt NN)
 - `kernel/` - config + fragment, device tree (latest), panel driver, debug patch, upstream patches used (Eric Goncalves' r0q v2 series,
   FTS2BA61Y v1, MAX77705 rev2) - patches keep their original authorship/licence (GPL-2.0)
-- `tools/` - `setup-host.sh` (one-time PC dependencies), `build-uniloader.sh`, `pack-boot-img.py` (boot image v4 packer), `reboot2.c` (reboot with a reason string), display test script, lmdpdg patch (PPS + timing selection)
+- `tools/` - `setup-host.sh` (one-time PC dependencies), `apply-kernel-patches.sh` (reproducible kernel patch/config setup), `build-uniloader.sh`, `pack-boot-img.py` (boot image v4 packer), `reboot2.c` (reboot with a reason string), display test script, lmdpdg patch (PPS + timing selection)
 - `wifi-debug/` - BHI register watcher, regulator test module
 
 Note: uniLoader's own AGENTS.md forbids LLM-generated changes inside its tree; `build-uniloader.sh` builds an unmodified copy.
-Developed with the help of AI assistants (Claude Code; 2.4 GHz Wi-Fi, SLPI sensors, writable SDAM RTC & deep-sleep resume authored with Gemini 4 Carbon). Use at your own risk: flashing can brick your phone; never flash Android 16 /
+Developed with the help of AI assistants (Claude Code; 2.4 GHz Wi-Fi, SLPI sensors, writable SDAM RTC, deep-sleep resume, USB 3.0 SuperSpeed, DisplayPort Alt-Mode & 7.0 GiB RAM authored with Gemini 4 Carbon). Use at your own risk: flashing can brick your phone; never flash Android 16 /
 One UI 8 firmware (relocks the bootloader) and never touch efs/sec_efs/persist/modem partitions.
