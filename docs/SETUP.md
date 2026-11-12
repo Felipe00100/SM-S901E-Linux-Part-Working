@@ -62,7 +62,7 @@ deviceinfo_usb_network_host_addr="02:22:52:00:00:02" # fixed PC-side MAC -> stab
 Install, preloading the packages we ended up needing so you don't install them over SSH later:
 
 ```
-pmbootstrap install --add bluez,bluez-btmgmt,linux-firmware-ath11k,linux-firmware-qca,i2c-tools,mesa-demos,chrony
+pmbootstrap install --add bluez,bluez-btmgmt,linux-firmware-ath11k,linux-firmware-qca,i2c-tools,mesa-demos,chrony,neard
 ```
 The image is written to `~/.local/var/pmbootstrap/chroot_native/home/pmos/rootfs/samsung-r0q.img` (flash only into `userdata`).
 

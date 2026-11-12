@@ -40,6 +40,7 @@ Wi-Fi is the one big item still open. Even the failed Wi-Fi attempts are useful:
 | 10-18 | - | Samsung Wi-Fi fw + board file (really loaded) + regdb + ath11k cold boot calibration | **Wi-Fi CONNECTS (5 GHz, 960 Mbit/s link)** |
 | 11-12 | - | QMP USB3+DP combo PHY (4nm S22 tuning), built-in Type-C/SBU AUX mux, SVDM `0xff01` + DRM HPD bridge in `max77705-usbc`, `&mdss_dp0`, +342 MiB Android-only RAM reclaim | **USB 3.0 SuperSpeed (5 Gbps), DisplayPort Alt-Mode (`card1-DP-1`) & 7.0 GiB usable RAM** |
 | 11-12 | - | SM8450 IPA v5.1 (`qcom,sm8450-ipa`, `ipa_gsi_mem` PAS 15) + `rpmsg_wwan_ctrl` + `s22-modem.service` (Dual-SIM UIM + `81voltd` + `VoiceCall`/`Earpiece` UCM2); S6E3FAC dynamic VRR/LFD (10-120 Hz + seamless 120/96/60/48/30/24 Hz), HBM (~1300 nits + auto-lux), mDNIe/OTP colour calibration & HLPM Always-On Display | **Full cellular modem stack (ModemManager + mobile data/SMS/calls ready) & S6E3FAC Display Extras** |
+| 11-12 | - | NFC PN547 (`i2c@888000`, VEN gpio66, IRQ gpio71, PVDD PM8350C L13), PM8350C flash/torch (4 channels), `s22-kbd-autohide` (evdev + KWin `/VirtualKeyboard`) | **NFC `nfc0` + `neard` polling, flash/torch sysfs, keyboard auto-hide** |
 
 ## Added to the repo
 
