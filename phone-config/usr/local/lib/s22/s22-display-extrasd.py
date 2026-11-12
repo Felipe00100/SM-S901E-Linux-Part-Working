@@ -208,7 +208,8 @@ class S22DisplayDaemon:
 
     def run_dpms(self, on: bool) -> None:
         for rt in sorted(Path("/run/user").glob("*")):
-            if not (rt / "wayland-0").is_socket():
+            wsocks = [s for s in sorted(rt.glob("wayland-[0-9]")) if s.is_socket()]
+            if not wsocks:
                 continue
             try:
                 uid = int(rt.name)
@@ -218,7 +219,7 @@ class S22DisplayDaemon:
             env = {
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
                 "XDG_RUNTIME_DIR": str(rt),
-                "WAYLAND_DISPLAY": "wayland-0",
+                "WAYLAND_DISPLAY": wsocks[0].name,
             }
             if (rt / "bus").is_socket():
                 env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={rt}/bus"
