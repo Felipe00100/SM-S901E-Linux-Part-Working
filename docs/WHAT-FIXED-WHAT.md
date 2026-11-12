@@ -62,13 +62,15 @@ From flashing uniLoader up to attempt 39 (2026-10-20). Kernel 7.2.11, postmarket
 | 49 | No DisplayPort over USB-C | Enable `&mdss_dp0` (`card1-DP-1`, 2 lanes up to HBR3), add `gpio-sbu-mux` (`gpio125` `/OE` active-low, `gpio108` `aux_sel`), wire OF-graph ports, and implement SVDM `0xff01` (Discover Identity/SVIDs/Modes, Enter Mode, DP Status, DP Configure Pin C/D/E, Attention/HPD + `drm_dp_hpd_bridge`) in `max77705-usbc` | Samsung kernel (`max77705_alternate.c`, `secdp`) + Ours (Gemini 4 Carbon) |
 | 50 | 342 MiB of HLOS RAM still locked in Android-only `no-map` regions | Drop DTBO-disabled `oem_vm_mem` (80M) & `global_sync_mem` (1M), Android-only `trust_ui_vm_*` (76M), boot-freed `samsung-rdx-bootdev` (173M) & `samsung-sec-debug` (10M), and shrink `slpi_mem` to stock 23M (`fragment@123`), keeping modem/camera/CVP intact -> **7,161 MiB (7.0 GiB) usable** | Samsung kernel (`sec_qc_rdx_bootdev.c`, stock DTBO) + Ours (Gemini 4 Carbon) |
 
+| 51 | Modem not listed by ModemManager, no mobile data (no SM8450 IPA), manual start only | Backport SM8450 IPA v5.1 (`qcom,sm8450-ipa`, `ipa_data-v5.1.c`), wire `&ipa` to stock `ipa_gsi_mem` (`0x8b910000` PAS 15 `apnhlos` `ipa_fws.mdt`), enable `RMNET` + `RPMSG_WWAN_CTRL`, add `s22-modem.service` (auto-boot + Dual-SIM QMI UIM provisioning + GNSS), read-only `rmtfs` drop-in, `81voltd`, and `VoiceCall`/`Earpiece` UCM2 | Upstream LKML (E. Urrutia / N. Kompanets) + Samsung kernel (`ipa.c`) + Ours (Gemini 4 Carbon) |
+| 52 | Fixed 120 Hz only (no dynamic VRR), no HBM, no colour calibration, no Always-On Display | Upgrade `panel-samsung-s6e3fac` with 6 stock FHD modes (120/96/60/48/30/24 Hz) + glitch-free seamless switching + hardware PHS/LFD adaptive VRR (10-120 Hz), 12-bit HBM (`0x0800..0x0fff`, ~1300 nits + `STK33915` auto-lux), hardware mDNIe/IRC colour modes + factory `0xA1` OTP white-point calibration + RGB/Kelvin LUT, hardware HLPM Always-On Display (2/10/30/60 nit + pocket guard), and `s22-display-ctl` | Samsung kernel (`S6E3FAC_AMB606AW01`) + Ours (Gemini 4 Carbon) |
+
 ## Not fixed yet
 - Speaker protection firmware (volume kept moderate)
 - Keyboard auto-hide
 - Front camera (IMX374): driver written, CCI bus held low (timeouts); rear camera drivers not written
 - Unused clocks/power domains kept on (clk_ignore_unused); removing them broke the display probe (attempt 40, reverted)
 - NPU compute runtime (needs Qualcomm SDK); NPU first-call race
-- Modem: no SIM tested, ModemManager doesn't list it; no mobile data (no sm8450 IPA)
 - Cameras, fingerprint (QBT2000/QBT2608 TrustZone-only), NFC
 
 ## Rules kept throughout

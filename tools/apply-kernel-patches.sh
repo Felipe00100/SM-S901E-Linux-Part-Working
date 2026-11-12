@@ -47,6 +47,7 @@ for p in \
 	"$U/local-sm8450-qmp-combo-usb3-tuning.patch" \
 	"$U/local-dwc3-qcom-role-vbus-override.patch" \
 	"$U/local-max77705-typec-dp-altmode.patch" \
+	"$U/local-sm8450-ipa-v5.1.patch" \
 	; do
 	echo "  $(basename "$p")"
 	patch -p1 --forward < "$p"
@@ -55,6 +56,7 @@ done
 echo "[2/5] Installing touchscreen fsleep fix, S6E3FAC panel driver, and r0q DTS..."
 cp "$U/fts2ba61y.c.as-built" drivers/input/touchscreen/fts2ba61y.c
 cp "$R/panel-samsung-s6e3fac.c" drivers/gpu/drm/panel/panel-samsung-s6e3fac.c
+cp "$R/panel-samsung-s6e3fac-mdnie.h" drivers/gpu/drm/panel/panel-samsung-s6e3fac-mdnie.h
 cp "$R/sm8450-samsung-r0q.dts" arch/arm64/boot/dts/qcom/sm8450-samsung-r0q.dts
 
 echo "[3/5] Registering DRM_PANEL_SAMSUNG_S6E3FAC in Kconfig & Makefile..."
@@ -99,6 +101,11 @@ PY
 echo "[4/5] Merging kernel/config-r0q.aarch64 + kernel/r0q.fragment..."
 cp "$R/config-r0q.aarch64" .config
 scripts/kconfig/merge_config.sh -m .config "$R/r0q.fragment"
+scripts/config --set-str INITRAMFS_SOURCE ""
+scripts/config --set-str CMDLINE "clk_ignore_unused pd_ignore_unused ignore_loglevel console=tty0 panic=0 log_buf_len=4M"
+scripts/config --disable LOCALVERSION_AUTO
+scripts/config --set-str SYSTEM_TRUSTED_KEYS ""
+scripts/config --set-str SYSTEM_REVOCATION_KEYS ""
 
 echo "[5/5] Running make olddefconfig..."
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig </dev/null

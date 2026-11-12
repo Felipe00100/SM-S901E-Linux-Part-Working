@@ -11,8 +11,8 @@ Updated 2026-11-11 ? kernel 7.2.11
 - [x] Bluetooth
 - [x] Bluetooth audio in (A2DP sink): phone plays music streamed from another device (2026-10-21)
 - [x] Bluetooth audio out: connects to a car stereo, clear audio (2026-10-21)
-- [x] Display 120 Hz, touch, GPU ([[Display]]); CPU frequency scaling + PSCI idle states verified
-- [x] Stereo speakers + 2 mics ([[Audio]]); amp digital volume +3 dB (841), no speaker protection yet
+- [x] Display 120/96/60/48/30/24 Hz + **Dynamic VRR (10-120 Hz PHS/LFD & seamless switch), HBM (~1300 nits + auto-lux), hardware mDNIe/IRC/OTP colour calibration & Always-On Display (HLPM 2/10/30/60 nit)**, touch, GPU ([[Display]]); CPU frequency scaling + PSCI idle states verified
+- [x] Stereo speakers + handset **Earpiece** + 2 mics + **VoiceCall UCM2** ([[Audio]]); amp digital volume +3 dB (841), no speaker protection yet
 - [x] Power, volume down, volume up buttons
 - [x] On-screen keyboard
 - [x] Charging + battery %
@@ -34,7 +34,7 @@ Updated 2026-11-11 ? kernel 7.2.11
 - [x] **Suspend/resume**: `deep` sleep + RTC/power-button wake verified; Wi-Fi, touch, sensors and **USB NCM survive resume without replug**
 
 ## 🟡 Partly working
-- [ ] Modem (boots; no SIM tested, ModemManager doesn't list it) ([[Modem]])
+- [x] **Cellular modem + SM8450 IPA v5.1 (`qcom,sm8450-ipa`)**: auto-starts at boot (`s22-modem.service` + read-only `rmtfs`), exposes `rmnet_ipa0` + `qrtr0` + `wwan0at0` to **ModemManager (`qcom-soc`)**, auto-provisions Dual-SIM USIM, VoLTE (`81voltd`), VoiceCall UCM2 & GNSS (SIM live test ready) ([[Modem]])
 - [ ] Keyboard auto-hide
 - [ ] Android phones can't browse MTP (PC works)
 - [x] OTG: ISO9660, UDF and exFAT enabled as kernel modules
@@ -43,8 +43,7 @@ Updated 2026-11-11 ? kernel 7.2.11
 - [ ] Unused clocks/power domains stay on (clk_ignore_unused pd_ignore_unused). Attempt 40 removed them: works but the display probe timed out (reverted). Next: longer deferred_probe_timeout
 
 ## ❌ Not done
-- [ ] Calls / SMS (needs SIM)
-- [ ] Mobile data (no sm8450 IPA in mainline)
+- [x] **Mobile data (`sm8450-ipa` v5.1 + `rmnet` enabled)** & **Calls / SMS stack** (`ModemManager` + `rpmsg_wwan_ctrl` + `81voltd` + `VoiceCall` UCM2 configured; ready for physical SIM test)
 - [ ] Speaker protection firmware (louder volume)
 - [ ] Vibration: full CS40L26 driver with Samsung firmware + calibration (stronger, custom waveforms)
 - [ ] Front camera IMX374: driver written (1616x912 RAW10 @ 30 fps), rails/MCLK/reset/power domain all verified, but CCI bus SDA/SCL held low (timeouts). Next: read the bus on stock Android
@@ -55,5 +54,5 @@ Updated 2026-11-11 ? kernel 7.2.11
 ## 📋 Housekeeping
 - [ ] Clean debug leftovers (ath11k debug build, `~/s22-tests`)
 - [ ] Battery charge limit control
-- [ ] "Landscape" label in Display settings (cosmetic)
+- [x] Portrait panel orientation (`DRM_MODE_PANEL_ORIENTATION_NORMAL`) reported by S6E3FAC driver
 - [ ] Upstream pcie-qcom patch (skipped for now)

@@ -32,7 +32,7 @@ For the Odin tool we used Odin4-GUI (github.com/Ragekill3377/Odin4-GUI) in its o
 
 ```
 mkdir -p ~/s22-kernel && cd ~/s22-kernel
-# Extract Linux 7.2.11 from kernel.org, then run the reproducible setup helper from this repo:
+# Extract Linux 7.2.11 from kernel.org, then apply all patches, S6E3FAC panel + mDNIe, DTS, and config:
 bash /path/to/SM-S901E-Linux-Part-Working/tools/apply-kernel-patches.sh ~/s22-kernel/linux-7.2.11
 cd ~/s22-kernel/linux-7.2.11
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image.gz modules qcom/sm8450-samsung-r0q.dtb

@@ -1,0 +1,159 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Control Samsung Galaxy S22 (S6E3FAC) Display Extras:
+# VRR / dynamic refresh, HBM, mDNIe colour calibration, white balance, and Always-On Display (AOD).
+
+set -eu
+
+CONF="/etc/s22-display.conf"
+PANEL=""
+for d in /sys/bus/mipi-dsi/devices/*; do
+	if [ -f "$d/vrr_mode" ]; then
+		PANEL="$d"
+		break
+	fi
+done
+
+if [ -z "$PANEL" ]; then
+	echo "s22-display-ctl: S6E3FAC panel sysfs not found under /sys/bus/mipi-dsi/devices" >&2
+	exit 1
+fi
+
+save_conf() {
+	key="$1"
+	val="$2"
+	[ -w "$CONF" ] || return 0
+	if grep -q "^${key}=" "$CONF" 2>/dev/null; then
+		sed -i "s|^${key}=.*|${key}="${val}"|" "$CONF"
+	else
+		printf '%s="%s"
+' "$key" "$val" >> "$CONF"
+	fi
+}
+
+usage() {
+	cat <<'EOF'
+Usage: s22-display-ctl <command> [args]
+
+Commands:
+  status                                  Show all S6E3FAC display states & OTP calibration
+  vrr <adaptive|adaptive_10|adaptive_60|fixed|120|96|60|48|30|24|10>
+                                          Set hardware VRR / LFD policy (and DRM refresh when numeric)
+  hbm <off|boost|sunlight|auto|0|1|2>     Control High Brightness Mode (up to ~1300 nits)
+  colour <vivid|natural|standard|auto|bypass|grayscale|night|outdoor>
+                                          Set hardware mDNIe + IRC colour calibration profile
+  wb <R> <G> <B>                          Set RGB white balance gains (128..255 each)
+  kelvin <2300..6500>                     Set hardware Night Mode colour temperature in K
+  acl <0|1|2|3>                           Set AMOLED Automatic Current Limit (0=off, 1=8%, 2=15%, 3=30%)
+  aod <on|off> [2|10|30|60]               Enable/disable hardware HLPM Always-On Display & nit level
+EOF
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+	status)
+		echo "=== Samsung S6E3FAC Display Extras ($PANEL) ==="
+		echo "DRM modes     : $(tr '
+' ' ' < /sys/class/drm/card1-DSI-1/modes 2>/dev/null || echo n/a)"
+		echo "VRR mode      : $(cat "$PANEL/vrr_mode")"
+		echo "HBM mode      : $(cat "$PANEL/hbm_mode") (hbm_dbv=$(cat "$PANEL/hbm_dbv"))"
+		echo "Backlight     : $(cat /sys/class/backlight/*/brightness 2>/dev/null | head -n1) / $(cat /sys/class/backlight/*/max_brightness 2>/dev/null | head -n1)"
+		echo "Colour mode   : $(cat "$PANEL/colour_mode")"
+		echo "White balance : $(cat "$PANEL/white_balance_rgb")"
+		echo "Factory OTP   : $(cat "$PANEL/factory_calibration")"
+		echo "Night Kelvin  : $(cat "$PANEL/night_kelvin") K"
+		echo "ACL mode      : $(cat "$PANEL/acl_mode")"
+		echo "AOD (HLPM)    : $(cat "$PANEL/aod_mode") @ $(cat "$PANEL/aod_brightness") nits"
+		;;
+	vrr)
+		mode="${2:?missing VRR mode}"
+		echo "$mode" > "$PANEL/vrr_mode"
+		save_conf VRR_MODE "$mode"
+		case "$mode" in
+			120|96|60|48|30|24)
+				if command -v kscreen-doctor >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+					kscreen-doctor "output.DSI-1.mode.1080x2340@${mode}" >/dev/null 2>&1 || true
+				fi
+				;;
+		esac
+		echo "VRR mode -> $(cat "$PANEL/vrr_mode")"
+		;;
+	hbm)
+		arg="${2:?missing HBM mode}"
+		case "$arg" in
+			off|0)
+				save_conf HBM_AUTO 0
+				echo 0 > "$PANEL/hbm_mode"
+				;;
+			boost|1)
+				save_conf HBM_AUTO 0
+				echo 1 > "$PANEL/hbm_mode"
+				;;
+			sunlight|peak|2)
+				save_conf HBM_AUTO 0
+				echo 4095 > "$PANEL/hbm_dbv"
+				echo 2 > "$PANEL/hbm_mode"
+				;;
+			auto)
+				save_conf HBM_AUTO 1
+				;;
+			*)
+				echo "Invalid HBM mode: $arg" >&2
+				exit 1
+				;;
+		esac
+		echo "HBM mode -> $(cat "$PANEL/hbm_mode") (auto=$(grep '^HBM_AUTO=' "$CONF" 2>/dev/null | cut -d'"' -f2 || echo 0))"
+		;;
+	colour|color)
+		cm="${2:?missing colour mode}"
+		echo "$cm" > "$PANEL/colour_mode"
+		save_conf COLOUR_MODE "$cm"
+		echo "Colour mode -> $(cat "$PANEL/colour_mode")"
+		;;
+	wb)
+		r="${2:?missing R}"
+		g="${3:?missing G}"
+		b="${4:?missing B}"
+		echo "$r $g $b" > "$PANEL/white_balance_rgb"
+		save_conf WHITE_BALANCE_RGB "$r $g $b"
+		echo "White balance -> $(cat "$PANEL/white_balance_rgb")"
+		;;
+	kelvin)
+		k="${2:?missing kelvin}"
+		echo "$k" > "$PANEL/night_kelvin"
+		save_conf NIGHT_KELVIN "$k"
+		echo "Night Kelvin -> $(cat "$PANEL/night_kelvin") K"
+		;;
+	acl)
+		a="${2:?missing acl 0..3}"
+		echo "$a" > "$PANEL/acl_mode"
+		save_conf ACL_MODE "$a"
+		echo "ACL mode -> $(cat "$PANEL/acl_mode")"
+		;;
+	aod)
+		state="${2:?missing on|off}"
+		case "$state" in
+			on|1)
+				echo 1 > "$PANEL/aod_mode"
+				save_conf AOD_ENABLED 1
+				;;
+			off|0)
+				echo 0 > "$PANEL/aod_mode"
+				save_conf AOD_ENABLED 0
+				;;
+			*)
+				echo "Invalid AOD state: $state" >&2
+				exit 1
+				;;
+		esac
+		if [ "${3:-}" != "" ]; then
+			echo "$3" > "$PANEL/aod_brightness"
+			save_conf AOD_NITS "$3"
+		fi
+		echo "AOD -> $(cat "$PANEL/aod_mode") @ $(cat "$PANEL/aod_brightness") nits"
+		;;
+	*)
+		usage
+		exit 1
+		;;
+esac
