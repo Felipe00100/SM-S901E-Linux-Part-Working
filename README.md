@@ -67,6 +67,7 @@ Full checklist: [docs/CHECKLIST-not-sorted.md](docs/CHECKLIST-not-sorted.md). Co
 8. **Never unbind `msm-mdss` live** (oopsed and hung the phone). Install display modules and reboot.
 9. **Bluetooth** needs the antenna-switch rail (PMR735A L7, 2.8 V always-on) or discovery finds nothing.
 10. Safe flash loop without Download-mode buttons: TWRP in the recovery slot, `adb push boot.img`, sha256 check, `dd` to `boot`, read back, `adb reboot`.
+11. **KWin must start after the Adreno DRM nodes.** If the Plasma session starts first, KWin initializes compositing on `udmabuf`/`llvmpipe` and never switches. `startplasmamobile` now unsets `EGL_PLATFORM=wayland` and waits for `/dev/dri/card0` + `/dev/dri/renderD128`; KWin then picks `renderD128` (`freedreno FD730`). Display helpers also discover `wayland-[0-9]` and resolve the session user from `/etc/passwd` before calling `kscreen-doctor`.
 
 ## Wi-Fi: works (2.4 + 5 GHz)
 
