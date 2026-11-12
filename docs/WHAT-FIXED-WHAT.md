@@ -67,14 +67,17 @@ From flashing uniLoader up to attempt 39 (2026-10-20). Kernel 7.2.11, postmarket
 
 | 53 | Display helpers silently skipped `kscreen-doctor` when the compositor socket was `wayland-1` instead of `wayland-0` | Discover `wayland-[0-9]` in `s22-display-ctl` / `s22-display-extrasd`, and resolve the session user from `/etc/passwd` (busybox `id -nu` fails under sudo) before calling `kscreen-doctor` | Ours |
 | 54 | KWin composited on `llvmpipe` because the Plasma session started before the Adreno DRM nodes existed | `startplasmamobile` now drops `EGL_PLATFORM=wayland` and waits for `/dev/dri/card0` + `/dev/dri/renderD128` before launching KWin; KWin selects `renderD128` / `freedreno FD730` | Ours |
+| 55 | NFC PN547 not enabled (no DT node / no NCI device) | Add `&i2c17` (QUP SE17, gpio64/65, 400 kHz), `nfc@28` with `nxp,pn547` + `nxp,nxp-nci-i2c`, VEN gpio66, IRQ gpio71, PVDD PM8350C L13 1.8 V; `nfc0` + `neard`/`nfctool` polling work | Samsung DTBO `fragment@89` + mainline `nxp-nci` |
+| 56 | Camera flash/torch unavailable | Enable `&pm8350c_flash` and expose the four PM8350C channels as `white:flash-0..3`; `leds-qcom-flash` creates torch/flash sysfs controls | Samsung DTBO `qcom,flash_led@ee00` + mainline `leds-qcom-flash` |
+| 57 | Virtual keyboard stays open after tapping outside a text field | `s22-kbd-autohide` watches the FTS2BA61Y evdev (no grab) and sets KWin `/VirtualKeyboard` `active=false` when a touch ends above 55% of the screen; KWin re-activates on the next text field | Ours |
 
 ## Not fixed yet
 - Speaker protection firmware (volume kept moderate)
-- Keyboard auto-hide
-- Front camera (IMX374): driver written, CCI bus held low (timeouts); rear camera drivers not written
+- Front camera (IMX374): driver source was lost; CCI bus held low (timeouts). Next: re-create the V4L2 driver and test the stock CCI1 m1 = mainline CCI1 m0 mapping (gpio114/115) with the sensor powered/clocked
+- Rear cameras: S5KGN3 (i2c@884000), IMX563 (CCI0 m0) and S5K3K1 (CCI0 m1) have no mainline V4L2 drivers
 - Unused clocks/power domains kept on (clk_ignore_unused); removing them broke the display probe (attempt 40, reverted)
 - NPU compute runtime (needs Qualcomm SDK); NPU first-call race
-- Cameras, fingerprint (QBT2000/QBT2608 TrustZone-only), NFC
+- Fingerprint (QBT2000/QBT2608 TrustZone-only; no open mainline driver)
 
 ## Rules kept throughout
 - Never write the EFS partitions (efs, sec_efs, persist, modemst1/2, fsg, fsc)

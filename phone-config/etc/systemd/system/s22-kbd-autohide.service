@@ -1,0 +1,13 @@
+[Unit]
+Description=S22 virtual keyboard auto-hide (tap outside keyboard)
+After=systemd-user-sessions.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/s22/s22-kbd-autohide.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

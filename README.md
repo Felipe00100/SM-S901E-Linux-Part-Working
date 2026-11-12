@@ -24,12 +24,13 @@ Australian XSA, One UI 7, bootloader unlocked) from the phone's own storage. And
 
 > Source, configs, notes and logs only. No firmware, images, backups or Samsung blobs are in this repo.
 
-## Status (2026-10-20, attempt 28)
+## Status (2026-11-12)
 
 | Works | Partly | Not yet |
 |---|---|---|
-| Boot via uniLoader, UFS, USB networking + SSH | **Cellular modem + SM8450 IPA v5.1**: auto-boots, QMI + `rmnet_ipa0` + `wwan0at0` in ModemManager, Dual-SIM UIM, `81voltd` & `VoiceCall` UCM2 (awaiting physical SIM test) | Cameras, fingerprint (QBT2000 TZ), NFC |
-| **Wi-Fi** 2.4 + 5 GHz, Wi-Fi 6 2x2, 960 Mbit/s, autoconnects at boot | On-screen keyboard (no auto-hide) | **NPU userspace (CDSP firmware runs, attempt 29)**, speaker protection |
+| Boot via uniLoader, UFS, USB networking + SSH | **Cellular modem + SM8450 IPA v5.1**: auto-boots, QMI + `rmnet_ipa0` + `wwan0at0` in ModemManager, Dual-SIM UIM, `81voltd` & `VoiceCall` UCM2 (awaiting physical SIM test) | Cameras, fingerprint (QBT2000 TZ) |
+| **Wi-Fi** 2.4 + 5 GHz, Wi-Fi 6 2x2, 960 Mbit/s, autoconnects at boot | **NFC PN547**: `nfc0` + `neard`/`nfctool` polling OK (tag read pending) | **NPU userspace (CDSP firmware runs, attempt 29)**, speaker protection |
+| **Virtual keyboard + auto-hide** (tap outside hides via KWin `VirtualKeyboard.active=false`) | **Camera flash/torch**: PM8350C 4 channels exposed (visual confirmation pending) | |
 | **Audio: stereo speakers + Earpiece (2x CS35L41) + 2 mics**, HiFi & VoiceCall UCM2 | **Vulkan (Turnip) on Adreno 730** | |
 | **USB-C USB 3.0 SuperSpeed (5 Gbps), OTG (FAT/exFAT/ISO), PD & DisplayPort Alt-Mode (`card1-DP-1`)** + **MTP** | | |
 | **Sensors** (SLPI: accel/auto-rotate, ALS/auto-brightness, proximity, compass) | | |

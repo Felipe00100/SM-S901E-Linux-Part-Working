@@ -3,6 +3,8 @@
 /dts-v1/;
 
 #include <dt-bindings/interconnect/qcom,sm8450.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/usb/pd.h>
 
@@ -459,6 +461,14 @@
 
 		/* Display vddio (stock: always on) */
 		vreg_l12c_1p8: ldo12 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
+		};
+
+		/* NFC PVDD (stock pm8350c_l13, PN547 1.8 V) */
+		vreg_l13c_1p8: ldo13 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
@@ -1595,4 +1605,100 @@
 
 &cpu7_bottom_alert1 {
 	temperature = <78000>;
+};
+
+/*
+ * NFC: NXP PN547 on QUPv3 SE17 (i2c@888000, gpio64/65).
+ * Stock Samsung node: DTBO fragment@89 pn547@28; VEN gpio66, IRQ gpio71,
+ * CLK_REQ gpio35, PVDD pm8350c_l13 1.8 V.
+ */
+&i2c17 {
+	status = "okay";
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&qup_i2c17_data_clk>;
+
+	nfc@28 {
+		compatible = "nxp,pn547", "nxp,nxp-nci-i2c";
+		reg = <0x28>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <71 IRQ_TYPE_EDGE_RISING>;
+		enable-gpios = <&tlmm 66 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_ven_default &nfc_irq_default &nfc_clkreq_default>;
+	};
+};
+
+&tlmm {
+	nfc_ven_default: nfc-ven-default-state {
+		pins = "gpio66";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-low;
+	};
+
+	nfc_irq_default: nfc-irq-default-state {
+		pins = "gpio71";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+		input-enable;
+	};
+
+	nfc_clkreq_default: nfc-clkreq-default-state {
+		pins = "gpio35";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		input-enable;
+	};
+};
+
+/*
+ * PM8350C flash LED controller (stock qcom,flash_led@ee00).
+ * Expose all four channels; the rear flash is on one of them.
+ */
+&pm8350c_flash {
+	status = "okay";
+
+	led-0 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <1>;
+		led-max-microamp = <300000>;
+		flash-max-microamp = <1000000>;
+		flash-max-timeout-us = <500000>;
+		function-enumerator = <0>;
+	};
+
+	led-1 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <2>;
+		led-max-microamp = <300000>;
+		flash-max-microamp = <1000000>;
+		flash-max-timeout-us = <500000>;
+		function-enumerator = <1>;
+	};
+
+	led-2 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <3>;
+		led-max-microamp = <300000>;
+		flash-max-microamp = <1000000>;
+		flash-max-timeout-us = <500000>;
+		function-enumerator = <2>;
+	};
+
+	led-3 {
+		function = LED_FUNCTION_FLASH;
+		color = <LED_COLOR_ID_WHITE>;
+		led-sources = <4>;
+		led-max-microamp = <300000>;
+		flash-max-microamp = <1000000>;
+		flash-max-timeout-us = <500000>;
+		function-enumerator = <3>;
+	};
 };

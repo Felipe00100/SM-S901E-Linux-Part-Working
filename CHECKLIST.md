@@ -37,7 +37,7 @@ Updated 2026-11-11 ? kernel 7.2.11
 
 ## 🟡 Partly working
 - [x] **Cellular modem + SM8450 IPA v5.1 (`qcom,sm8450-ipa`)**: auto-starts at boot (`s22-modem.service` + read-only `rmtfs`), exposes `rmnet_ipa0` + `qrtr0` + `wwan0at0` to **ModemManager (`qcom-soc`)**, auto-provisions Dual-SIM USIM, VoLTE (`81voltd`), VoiceCall UCM2 & GNSS (SIM live test ready) ([[Modem]])
-- [ ] Keyboard auto-hide
+- [x] **Keyboard auto-hide**: `s22-kbd-autohide` reads the FTS2BA61Y evdev and sets KWin `VirtualKeyboard.active=false` when a touch ends above the keyboard area (2026-11-12)
 - [ ] Android phones can't browse MTP (PC works)
 - [x] OTG: ISO9660, UDF and exFAT enabled as kernel modules
 - [ ] NPU userspace (FastRPC library) - CDSP is up
@@ -51,7 +51,8 @@ Updated 2026-11-11 ? kernel 7.2.11
 - [ ] Front camera IMX374: driver written (1616x912 RAW10 @ 30 fps), rails/MCLK/reset/power domain all verified, but CCI bus SDA/SCL held low (timeouts). Next: read the bus on stock Android
 - [ ] Rear cameras: S5KGN3 main (QUP i2c@884000), IMX563 ultrawide (CCI0 m0), S5K3K1 tele (CCI0 m1): no mainline drivers
 - [ ] Fingerprint (Qualcomm 3D Sonic QBT2000, TrustZone-only: unlikely)
-- [ ] NFC
+- [x] **NFC PN547**: `i2c@888000` (gpio64/65), VEN gpio66, IRQ gpio71, PVDD PM8350C L13 1.8 V; `nxp-nci_i2c` + `nfc0` + `neard` polling OK (tag read pending, 2026-11-12)
+- [x] **Camera flash (PM8350C)**: `leds-qcom-flash`, four `white:flash-*` channels, torch/flash sysfs OK (visual confirmation pending, 2026-11-12)
 
 ## 📋 Housekeeping
 - [ ] Clean debug leftovers (ath11k debug build, `~/s22-tests`)
