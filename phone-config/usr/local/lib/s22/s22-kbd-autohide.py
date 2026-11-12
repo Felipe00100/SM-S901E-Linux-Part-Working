@@ -71,17 +71,25 @@ def kwin_property(env, prop):
         return False
 
 
-def kwin_hide(env):
+def kwin_set_active(env, active):
     try:
-        result = subprocess.run(
+        return subprocess.run(
             ["qdbus6", "org.kde.KWin", "/VirtualKeyboard",
              "org.freedesktop.DBus.Properties.Set",
-             "org.kde.kwin.VirtualKeyboard", "active", "false"],
-            env=env, capture_output=True, text=True, timeout=DBUS_TIMEOUT)
-        if result.returncode == 0:
-            print("tap outside keyboard -> hidden", flush=True)
+             "org.kde.kwin.VirtualKeyboard", "active",
+             "true" if active else "false"],
+            env=env, capture_output=True, text=True, timeout=DBUS_TIMEOUT).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
-        pass
+        return False
+
+
+def kwin_hide(env):
+    # Hide now, then leave the input method enabled so the next text field
+    # can show the keyboard again.
+    if kwin_set_active(env, False):
+        time.sleep(0.15)
+        kwin_set_active(env, True)
+        print("tap outside keyboard -> hidden", flush=True)
 
 
 def axis_max(fd, code):
