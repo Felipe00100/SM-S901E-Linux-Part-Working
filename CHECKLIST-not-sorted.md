@@ -22,8 +22,7 @@
 - [x] **Apps**: QMLKonsole terminal, Google Chrome (Flathub, official ARM64), Chromium, Discover + Flathub app store, KRecorder (GStreamer backend)
 - [x] **Volume up** button (gpio-keys, attempt 27)
 - [x] **Audio**: stereo loudspeakers (top = left, bottom = right) + 2 microphones, PulseAudio Speaker sink + Mic source (attempts 24-26). Still: speaker protection fw, call audio
-- [~] **Cellular modem**: boots (attempt 20), QMI online, 52 services; rmtfs from EFS copies read-only. Started by hand (not at boot).
-      No SIM inserted yet; ModemManager does not list it yet. SMS/calls untested; mobile data needs sm8450 IPA (not in mainline)
+- [x] **Cellular modem + SM8450 IPA v5.1 (`qcom,sm8450-ipa`)**: auto-starts at boot (`s22-modem.service`, read-only `rmtfs` in `/var/lib/rmtfs`), IPA v5.1 (`ipa_gsi_mem` PAS 15 `ipa_fws.mdt`) + `rmnet` + `rpmsg_wwan_ctrl` enumerate in **ModemManager (`qcom-soc`)** for **4G/5G mobile data, SMS, Voice Calls (`81voltd` + `VoiceCall` UCM2 + `Earpiece`), Dual-SIM QMI UIM auto-provisioning & GNSS**
 - [ ] **Sleep / suspend / resume**, screen off + wake, power button behaviour (untested)
 - [ ] **Brightness control in the UI** (backlight exists; slider untested), auto-brightness
 - [ ] **Sensors**: auto-rotate (accelerometer/gyro), proximity, ambient light
@@ -34,7 +33,7 @@
 - [ ] **USB-C**: host/OTG (driver + OTG VBUS in place since attempt 23, untested), PD, DisplayPort out, USB3 (currently USB2 peripheral only)
 - [ ] **RTC** is read-only (clock relies on NTP; no time at boot until network)
 - [x] **120 Hz** (panel driver refresh=120 default, stock fhd120hs timing + commands)
-- [ ] **Display extras**: VRR (no dynamic switching), HBM, colour calibration, always-on display
+- [x] **Display extras (`panel-samsung-s6e3fac` + `s22-display-ctl` + `s22-display-extras.service`)**: **VRR** (hardware 10-120 Hz / 24-120 Hz PHS/LFD + seamless non-blanking 120/96/60/48/30/24 Hz DRM modes), **HBM** (12-bit DBV up to 4095 / ~1300 nits + `STK33915` sunlight auto-boost), **colour calibration** (hardware mDNIe + IRC Vivid/Natural sRGB/Standard/Auto/Bypass/Grayscale/Night 2300-6500K/Outdoor + factory `0xA1` OTP CIE white-point calibration + RGB white balance + DPU PCC CTM), and **Always-On Display** (hardware HLPM 2/10/30/60 nit self-refresh + proximity pocket guard)
 
 ## Known rough edges / tech debt
 - [ ] `panel = <&panel_size>` on simple-framebuffer blocks it from probing (no fallback display if the DSI path fails); fix needs care with card numbering (WLR_DRM_DEVICES=/dev/dri/card1 is hardcoded)
@@ -48,7 +47,7 @@
 - [ ] Kernel cmdline is forced; module blocklist /etc/modprobe.d/s22-bringup.conf still lists several modules (qcrypto must stay blocked: it hangs the phone)
 - [ ] Reboot helper: `~/reboot2` with no argument reboots into the last target (went to TWRP once) - always pass an explicit argument
 - [-] (skipped by user) Upstream patch ready to send: kernel-config/upstream-patches/0001-PCI-qcom-Parse-iommu-map-entries-using-iommu-cells.patch (Fixes filled; needs your name + Signed-off-by)
-- [ ] Plasma Display settings label the native portrait mode "Landscape" (cosmetic; panel orientation property)
+- [x] Portrait panel orientation (`DRM_MODE_PANEL_ORIENTATION_NORMAL`) wired in `panel-samsung-s6e3fac`
 - [ ] NOTE for new ports / reinstalls: install USB-C auto-detection (MAX77705 Type-C driver + DT role switch, kernel-config/upstream-patches/tabs8/) ASAP, right after USB networking works - it removes the replug on every test boot
 - [x] USB link drops = system suspend (dwc3 HS-PHY not in L2 on resume); suspend blocked for now (elogind sleep.conf.d + powerdevilrc)
 - [x] **USB plug/unplug detection** (attempt 28): MAX77705 IRQ pin gpio5 power-source 0 -> 1 (stock if_pmic_irq). Was: 200001-IRQ storm then dead, no hotplug

@@ -657,6 +657,19 @@
 	status = "okay";
 };
 
+/*
+ * IP Accelerator (IPA v5.1) for cellular mobile data (rmnet) and ModemManager
+ * qcom-soc enumeration. Stock S22 vendor_boot DTB binds PAS ID 15 (ipa_fws) to
+ * ipa_gsi_mem (0x8b910000, 0xa000), authenticated from apnhlos ipa_fws.mdt.
+ */
+&ipa {
+	qcom,gsi-loader = "self";
+	memory-region = <&ipa_gsi_mem>;
+	firmware-name = "qcom/sm8450/samsung/r0q/ipa_fws.mdt";
+
+	status = "okay";
+};
+
 /* Stock reserved-memory layout around the ADSP (Samsung's ADSP image is 59 MiB of relocatable segments) */
 &adsp_mem {
 	reg = <0x0 0x84500000 0x0 0x3b00000>;

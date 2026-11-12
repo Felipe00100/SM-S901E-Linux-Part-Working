@@ -1,0 +1,3 @@
+# Ensure ModemManager qcom-soc plugin discovers SM8450 IPA netdev and RPMSG WWAN ports
+ACTION=="add|change|move", SUBSYSTEM=="net", DRIVERS=="ipa", ENV{ID_MM_QCOM_SOC}="1", ENV{ID_MM_CANDIDATE}="1"
+ACTION=="add|change|move", SUBSYSTEM=="wwan", ENV{ID_MM_QCOM_SOC}="1", ENV{ID_MM_CANDIDATE}="1"
